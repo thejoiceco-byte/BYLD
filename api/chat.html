@@ -1,6 +1,165 @@
-const code = document.getElementById('access-code').value.trim();
-const response = await fetch('/api/chat', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ messages, code })
-});
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forge – AI Co-Founder</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0f0f; color: #e5e5e5; height: 100vh;
+      display: flex; flex-direction: column;
+    }
+    header {
+      background: #1a1a1a; padding: 16px 20px; border-bottom: 1px solid #333;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header span { font-size: 0.85rem; color: #888; }
+    #chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .message { max-width: 85%; padding: 12px 16px; border-radius: 12px; line-height: 1.5; white-space: pre-wrap; }
+    .user { align-self: flex-end; background: #2563eb; color: white; }
+    .assistant { align-self: flex-start; background: #1f1f1f; border: 1px solid #333; }
+    #input-area { padding: 16px 20px; background: #1a1a1a; border-top: 1px solid #333; }
+    #access-code, #user-input {
+      width: 100%; padding: 10px 14px; background: #111; border: 1px solid #444;
+      border-radius: 8px; color: white; font-size: 14px;
+    }
+    #access-code { margin-bottom: 10px; }
+    .row { display: flex; gap: 10px; }
+    #user-input { flex: 1; font-size: 15px; resize: none; min-height: 48px; max-height: 120px; }
+    button {
+      padding: 12px 20px; background: #2563eb; color: white; border: none;
+      border-radius: 8px; font-weight: 600; cursor: pointer;
+    }
+    button.ghost { background: transparent; border: 1px solid #444; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .loading { opacity: 0.6; font-style: italic; }
+    a { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Forge</h1>
+      <span>Co-founder for a first $100–$1,000</span>
+    </div>
+    <button class="ghost" id="reset-btn" type="button">New chat</button>
+  </header>
+  <div id="chat"></div>
+  <div id="input-area">
+    <input id="access-code" type="password" placeholder="Access code from your receipt email" autocomplete="off">
+    <div class="row">
+      <textarea id="user-input" placeholder="Skills, hours/week, online or local…" rows="1"></textarea>
+      <button id="send-btn" type="button">Send</button>
+    </div>
+  </div>
+  <script>
+    const SYSTEM_PROMPT = `You are Forge, a direct co-founder for ambitious people roughly 16–22 who want a legal micro-business.
+
+Personality: short, specific, no hype, no fake income claims.
+Job:
+1. Learn skills, interests, location, hours/week, and constraints.
+2. Pick one low-capital offer they can launch in days (service, digital product, local hybrid).
+3. When they ask for a plan, output: name options, one-sentence pitch, customer, price, landing sections, 5 posts, one outreach script, tools, 7-day plan, and the main risk.
+Rules:
+- Prefer ideas that can plausibly make the first $100–$1000, and say what has to be true for that.
+- Never advise lying about age, identity, or results to platforms, schools, clients, or payment processors.
+- If the user is under 18, assume a parent must own the payment account.
+- No sexual content. No scams, fake reviews, or impersonation.
+- Ask at most 2 questions when blocked; otherwise decide and move.
+Start by introducing yourself in two sentences and asking what they are good at, hours per week, and online vs local.`;
+
+    const WELCOME = `I'm Forge. I help you pick one small legal offer and ship it this week — not a motivational speech.
+
+Answer three things:
+1. What are you actually good at?
+2. How many hours a week can you work?
+3. Online, local, or hybrid?`;
+
+    const chatEl = document.getElementById('chat');
+    const inputEl = document.getElementById('user-input');
+    const codeEl = document.getElementById('access-code');
+    const sendBtn = document.getElementById('send-btn');
+    const resetBtn = document.getElementById('reset-btn');
+
+    let messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+
+    codeEl.value = localStorage.getItem('forge_code') || '';
+    codeEl.addEventListener('change', () => {
+      localStorage.setItem('forge_code', codeEl.value.trim());
+    });
+
+    function addMessage(role, content) {
+      const div = document.createElement('div');
+      div.className = `message ${role}`;
+      div.textContent = content;
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
+      return div;
+    }
+
+    function resetChat() {
+      messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+      chatEl.replaceChildren();
+      addMessage('assistant', WELCOME);
+    }
+
+    async function sendMessage() {
+      const text = inputEl.value.trim();
+      const code = codeEl.value.trim();
+      if (!text || sendBtn.disabled) return;
+      if (!code) {
+        addMessage('assistant', 'Enter the access code from your receipt email first.');
+        return;
+      }
+
+      addMessage('user', text);
+      inputEl.value = '';
+      sendBtn.disabled = true;
+      messages.push({ role: 'user', content: text });
+      if (messages.length > 31) {
+        messages = [messages[0], ...messages.slice(-30)];
+      }
+
+      const loading = addMessage('assistant', 'Thinking…');
+      loading.classList.add('loading');
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages, code })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        const reply = data.content;
+        if (!reply) throw new Error('Empty reply');
+        messages.push({ role: 'assistant', content: reply });
+        loading.remove();
+        addMessage('assistant', reply);
+      } catch (err) {
+        loading.remove();
+        messages.pop();
+        addMessage('assistant', `Could not reach Forge. ${err.message}`);
+      }
+
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    resetBtn.addEventListener('click', resetChat);
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    resetChat();
+  </script>
+</body>
+</html>
+
